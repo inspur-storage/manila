@@ -256,12 +256,11 @@ class RestAPIExecutorTestCase(test.TestCase):
             requests, 'post', mock.Mock(
                 return_value=FakeResponse(
                     200, fake_out_put)))
-        self.assertRaises(
-            exception.NetworkException,
-            self.rest_api.send_api,
-            method='fake_url',
-            params='fake_params',
-            request_type='post')
+        self.assertRaises(exception.NetworkException,
+                          self.rest_api.send_api,
+                          method='fake_url',
+                          params='fake_params',
+                          request_type='post')
         mock_requests.assert_called_once_with(
             'http://%s:%s/rest/%s' %
             (test_config.as13000_nas_ip,
@@ -271,6 +270,60 @@ class RestAPIExecutorTestCase(test.TestCase):
             headers={
                 'X-Auth-Token': 'fake_token'})
 
+    @ddt.data(
+        {'method': 'fake_method', 'request_type': 'post', 'params':
+         {'fake_param': 'fake_value'}},
+        {'method': 'fake_method', 'request_type': 'get', 'params':
+         {'fake_param': 'fake_value'}},
+        {'method': 'fake_method', 'request_type': 'delete', 'params':
+         {'fake_param': 'fake_value'}},
+        {'method': 'fake_method', 'request_type': 'put', 'params':
+         {'fake_param': 'fake_value'}},)
+    @ddt.unpack
+    def test_send_api(self, method, params, request_type):
+        self.rest_api._token_pool = ['fake_token']
+        if request_type in ('post', 'delete', 'put'):
+            fake_output = {'code': 0, 'message': 'success'}
+        elif request_type == 'get':
+            fake_output = {'code': 0, 'data': 'fake_date'}
+        mock_request = self.mock_object(
+            requests, request_type, mock.Mock(
+                return_value=FakeResponse(
+                    200, fake_output)))
+        self.rest_api.send_api(
+            method,
+            params=params,
+            request_type=request_type)
+        mock_request.assert_called_once_with(
+            'http://%s:%s/rest/%s' %
+            (test_config.as13000_nas_ip,
+             test_config.as13000_nas_port,
+             method),
+            data=json.dumps(params),
+            headers={'X-Auth-Token': 'fake_token'})
+
+    def test_send_api_fail(self):
+        self.rest_api._token_pool = ['fake_token']
+        fake_output = {'code': 'fake_code', 'message': 'fake_message'}
+        mock_request = self.mock_object(
+            requests, 'post', mock.Mock(
+                return_value=FakeResponse(
+                    200, fake_output)))
+       # self.rest_api.send_api()
+        self.assertRaises(
+            exception.ShareBackendException,
+            self.rest_api.send_api,
+            method='fake_method',
+            params='fake_params',
+            request_type='post')
+        mock_request.assert_called_once_with(
+            'http://%s:%s/rest/%s' %
+            (test_config.as13000_nas_ip,
+             test_config.as13000_nas_port,
+             'fake_method'),
+            data=json.dumps('fake_params'),
+            headers={'X-Auth-Token': 'fake_token'}
+        )
 #
 # class AS13000ShareDriverTestCase(test.TestCase):
 #     def __init__(self, *args, **kwds):
