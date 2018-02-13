@@ -48,7 +48,7 @@ test_config.inspur_as13000_share_pool = 'fake_pool'
 class FakeResponse(object):
     def __init__(self, status, output):
         self.status_code = status
-        self.text = 'Random text'
+        self.text = 'return message'
         self._json = output
 
     def json(self):
@@ -73,7 +73,6 @@ class RestAPIExecutorTestCase(test.TestCase):
                                       mock.Mock(return_value='fake_token'))
         self.rest_api.logins()
         mock_login.assert_called_once()
-        # pass
 
     def test_login(self):
         fake_response = {
@@ -178,6 +177,38 @@ class RestAPIExecutorTestCase(test.TestCase):
                                    'fake_type')
         # mock_rt.assert_called_with(force=True)
 
+    @ddt.data(
+        {'method': 'fake_method', 'request_type': 'post', 'params':
+            {'fake_param': 'fake_value'}},
+        {'method': 'fake_method', 'request_type': 'get', 'params':
+            {'fake_param': 'fake_value'}},
+        {'method': 'fake_method', 'request_type': 'delete', 'params':
+            {'fake_param': 'fake_value'}},
+        {'method': 'fake_method', 'request_type': 'put', 'params':
+            {'fake_param': 'fake_value'}}, )
+    @ddt.unpack
+    def test_send_api(self, method, params, request_type):
+        self.rest_api._token_pool = ['fake_token']
+        if request_type in ('post', 'delete', 'put'):
+            fake_output = {'code': 0, 'message': 'success'}
+        elif request_type == 'get':
+            fake_output = {'code': 0, 'data': 'fake_date'}
+        mock_request = self.mock_object(
+            requests, request_type, mock.Mock(
+                return_value=FakeResponse(
+                    200, fake_output)))
+        self.rest_api.send_api(
+            method,
+            params=params,
+            request_type=request_type)
+        mock_request.assert_called_once_with(
+            'http://%s:%s/rest/%s' %
+            (test_config.as13000_nas_ip,
+             test_config.as13000_nas_port,
+             method),
+            data=json.dumps(params),
+            headers={'X-Auth-Token': 'fake_token'})
+
     @ddt.data({'method': r'security/token',
                'params': {'name': test_config.as13000_nas_login,
                           'password': test_config.as13000_nas_password},
@@ -270,38 +301,6 @@ class RestAPIExecutorTestCase(test.TestCase):
             headers={
                 'X-Auth-Token': 'fake_token'})
 
-    @ddt.data(
-        {'method': 'fake_method', 'request_type': 'post', 'params':
-         {'fake_param': 'fake_value'}},
-        {'method': 'fake_method', 'request_type': 'get', 'params':
-         {'fake_param': 'fake_value'}},
-        {'method': 'fake_method', 'request_type': 'delete', 'params':
-         {'fake_param': 'fake_value'}},
-        {'method': 'fake_method', 'request_type': 'put', 'params':
-         {'fake_param': 'fake_value'}},)
-    @ddt.unpack
-    def test_send_api(self, method, params, request_type):
-        self.rest_api._token_pool = ['fake_token']
-        if request_type in ('post', 'delete', 'put'):
-            fake_output = {'code': 0, 'message': 'success'}
-        elif request_type == 'get':
-            fake_output = {'code': 0, 'data': 'fake_date'}
-        mock_request = self.mock_object(
-            requests, request_type, mock.Mock(
-                return_value=FakeResponse(
-                    200, fake_output)))
-        self.rest_api.send_api(
-            method,
-            params=params,
-            request_type=request_type)
-        mock_request.assert_called_once_with(
-            'http://%s:%s/rest/%s' %
-            (test_config.as13000_nas_ip,
-             test_config.as13000_nas_port,
-             method),
-            data=json.dumps(params),
-            headers={'X-Auth-Token': 'fake_token'})
-
     def test_send_api_fail(self):
         self.rest_api._token_pool = ['fake_token']
         fake_output = {'code': 'fake_code', 'message': 'fake_message'}
@@ -324,14 +323,72 @@ class RestAPIExecutorTestCase(test.TestCase):
             data=json.dumps('fake_params'),
             headers={'X-Auth-Token': 'fake_token'}
         )
-#
-# class AS13000ShareDriverTestCase(test.TestCase):
-#     def __init__(self, *args, **kwds):
-#         super(AS13000ShareDriverTestCase, self).__init__(False, *args, **kwds)
-#         self._ctxt = context.get_admin_context()
-#         self.configuration = test_config
-#
-#     def setUp(self):
-#         CONF.set_default('driver_handles_share_servers', False)
-#         self._driver = as13000_nas.AS13000ShareDriver(
-#             configuration=self.configuration)
+
+
+class AS13000ShareDriverTestCase(test.TestCase):
+    def __init__(self, *args, **kwds):
+        super(AS13000ShareDriverTestCase, self).__init__(*args, **kwds)
+        self._ctxt = context.get_admin_context()
+        self.configuration = test_config
+
+    def setUp(self):
+        CONF.set_default('driver_handles_share_servers', False)
+        self.rest_api = as13000_nas.RestAPIExecutor(
+            test_config.as13000_nas_ip,
+            test_config.as13000_nas_port,
+            test_config.as13000_nas_login,
+            test_config.as13000_nas_password)
+        self.as13000_driver = as13000_nas.AS13000ShareDriver(
+            configuration=self.configuration)
+        super(AS13000ShareDriverTestCase, self).setUp()
+
+    def test_do_setup(self):
+        mock_login = self.mock_object(
+            as13000_nas.RestAPIExecutor, 'logins', mock.Mock())
+        mock_vpe = self.mock_object(
+            self.as13000_driver,
+            '_validate_pools_exist',
+            mock.Mock())
+        mock_sp = self.mock_object(
+            self.as13000_driver, '_get_storage_pool', mock.Mock(
+                return_value='fake_storage_pool'))
+        mock_gni = self.mock_object(
+            self.as13000_driver, '_get_nodes_ips', mock.Mock(
+                return_value=['fake_ips']))
+        self.as13000_driver.do_setup(self._ctxt)
+        mock_login.assert_called_once()
+        mock_vpe.assert_called_once()
+        mock_sp.assert_called_once_with(
+            test_config.inspur_as13000_share_pool[0])
+        mock_gni.assert_called_once()
+
+    def test_do_setup_login_fail(self):
+        mock_login = self.mock_object(
+            as13000_nas.RestAPIExecutor, 'logins', mock.Mock(
+                side_effect=exception.ShareBackendException('fake_exception')))
+        self.assertRaises(exception.ShareBackendException, self.as13000_driver.do_setup,self._ctxt)
+        mock_login.assert_called_once()
+
+    def test_do_setup_vpe_failed(self):
+        mock_login = self.mock_object(
+            as13000_nas.RestAPIExecutor, 'logins', mock.Mock())
+        mock_vpe = self.mock_object(
+            self.as13000_driver,
+            '_validate_pools_exist',
+            mock.Mock(side_effect= exception.InvalidInput(reason='fake_exception')))
+        self.assertRaises(exception.InvalidInput, self.as13000_driver.do_setup, self._ctxt)
+        mock_login.assert_called_once()
+        mock_vpe.assert_called_once()
+
+    # def test_check_for_setup_error(self):
+    #     self.as13000_driver.storage_pool = 'fake_pool'
+    #     self.as13000_driver.ips = ['fake_ip']
+    #     self.as13000_driver.check_for_setup_error()
+
+    # def test_check_for_setup_error_fail1(self):
+    #     self.as13000_driver.storage_pool = 'fake_pool'
+    #     self.as13000_driver.ips = ['fake_ip']
+    #     self.as13000_driver.check_for_setup_error()
+
+    def test_create_share(self):
+        pass

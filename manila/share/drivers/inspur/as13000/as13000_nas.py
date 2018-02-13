@@ -288,6 +288,12 @@ class AS13000ShareDriver(driver.ShareDriver):
                 msg = '%s is not set.' % flag
                 LOG.error(msg)
                 raise exception.InvalidInput(reason=msg)
+        if self.storage_pool is None:
+            msg = 'The pool status is not right'
+            raise exception.ShareBackendException(msg)
+        if len(self.ips) == 0:
+            msg = 'All backend nodes status are down'
+            raise exception.ShareBackendException(msg)
 
     @inspur_driver_debug_trace
     def create_share(self, context, share, share_server=None):
@@ -819,7 +825,8 @@ class AS13000ShareDriver(driver.ShareDriver):
 
     @inspur_driver_debug_trace
     def _get_share_pnsp(self, share):
-        """Get pool, share_name, share_size, share_proto of share.
+        """
+        Get pool, share_name, share_size, share_proto of share.
         AS13000 require all the names can only consist of letters,numbers,
         and undercores,and must begin with a letter.
         Also the length of name must less than 32 character.
@@ -864,7 +871,7 @@ class AS13000ShareDriver(driver.ShareDriver):
     @inspur_driver_debug_trace
     def _format_name(self, name):
         """format name to meet the backend requirements"""
-        name = name[0:29]
+        name = name[0:30]
         name = name.replace('-', '_')
         return name
 
