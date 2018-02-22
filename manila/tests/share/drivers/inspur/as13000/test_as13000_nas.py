@@ -661,3 +661,102 @@ class AS13000ShareDriverTestCase(test.TestCase):
             new_size)
         mock_gsp.assert_called_once_with(share)
         mock_gdq.assert_called_once_with(share_path)
+
+    @ddt.data(fake_share.fake_share(share_proto='nfs'),
+              fake_share.fake_share(share_proto='cifs'))
+    def test_ensure_share(self, share):
+        mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
+                                    mock.Mock(
+                                        return_value=(
+                                            'fakepool',
+                                            share['name'],
+                                            share['size'],
+                                            share['share_proto'])))
+        fake_path = r'/%s/%s' % ('fakepool', share['name'])
+        mock_gns = self.mock_object(
+            self.as13000_driver, '_get_nfs_share', mock.Mock(
+                return_value=['fake_share']))
+        mock_gcs = self.mock_object(
+            self.as13000_driver, '_get_cifs_share', mock.Mock(
+                return_value=['fake_share']))
+        mock_glp = self.mock_object(
+            self.as13000_driver, '_get_location_path', mock.Mock(
+                return_value='fake_location_path'))
+        expect_location = 'fake_location_path'
+        location_path = self.as13000_driver.ensure_share(self._ctxt, share)
+        self.assertEqual(expect_location, location_path)
+        mock_gsp.assert_called_once_with(share)
+        if share['share_proto'] is 'nfs':
+            mock_gns.assert_called_once_with(fake_path)
+
+        elif share['share_proto'] is 'cifs':
+            mock_gcs.assert_called_once_with(share['name'])
+        mock_glp.assert_called_once_with(
+            share['name'], fake_path, share['share_proto'])
+
+    def test_ensure_share_fail_1(self):
+        share = fake_share.fake_share()
+        mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
+                                    mock.Mock(
+                                        return_value=(
+                                            'fakepool',
+                                            share['name'],
+                                            share['size'],
+                                            share['share_proto'])))
+        self.assertRaises(
+            exception.InvalidInput,
+            self.as13000_driver.ensure_share,
+            self._ctxt,
+            share)
+        mock_gsp.assert_called_once_with(share)
+
+    @ddt.data(fake_share.fake_share(share_proto='nfs'),
+              fake_share.fake_share(share_proto='cifs'))
+    def test_ensure_share_None_share_fail(self, share):
+        mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
+                                    mock.Mock(
+                                        return_value=(
+                                            'fakepool',
+                                            share['name'],
+                                            share['size'],
+                                            share['share_proto'])))
+        fake_path = r'/%s/%s' % ('fakepool', share['name'])
+        mock_gns = self.mock_object(
+            self.as13000_driver, '_get_nfs_share', mock.Mock(
+                return_value=[]))
+        mock_gcs = self.mock_object(
+            self.as13000_driver, '_get_cifs_share', mock.Mock(
+                return_value=[]))
+        self.assertRaises(
+            exception.ShareResourceNotFound,
+            self.as13000_driver.ensure_share,
+            self._ctxt,
+            share)
+        mock_gsp.assert_called_once_with(share)
+        if share['share_proto'] is 'nfs':
+            mock_gns.assert_called_once_with(fake_path)
+        elif share['share_proto'] is 'cifs':
+            mock_gcs.assert_called_once_with(share['name'])
+
+    def test_create_snapshot(self):
+        share_in_snapshot = fake_share.fake_share()
+        fake_snapshot = fake_share.fake_snapshot(create_instance=True,share=share_in_snapshot)
+        share = fake_snapshot['share']
+        mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
+                                    mock.Mock(
+                                        return_value=(
+                                            'fakepool',
+                                            share['name'],
+                                            share['size'],
+                                            share['share_proto'])))
+        fake_path = r'/%s/%s' % ('fakepool', share['name'])
+        mock_fn = self.mock_object(self.as13000_driver,'_format_name',
+                                   mock.Mock(return_value='formatname'))
+        mock_rest = self.mock_object(as13000_nas.RestAPIExecutor, 'send_rest_api')
+        self.as13000_driver.create_snapshot(self._ctxt,fake_snapshot)
+        mock_gsp.assert_called_once_with(share)
+        mock_fn.assert_called_once_with('snap_%s' % fake_snapshot['id'])
+        method = 'snapshot/directory'
+        request_type = 'post'
+        params = {'path': fake_path, 'snapName': 'formatname'}
+        mock_rest.assert_called_once_with(method=method,request_type=request_type,params=params)

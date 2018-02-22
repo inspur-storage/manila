@@ -34,26 +34,36 @@ from manila.share import utils as share_utils
 LOG = logging.getLogger(__name__)
 
 inspur_as13000_opts = [
-    cfg.HostAddressOpt('as13000_nas_ip',
-                       help='As13000 IP address.'),
-    cfg.IntOpt('as13000_api_port',
-               default=8088,
-               help='The port that Driver used to send request to the backend.'),
-    cfg.StrOpt('as13000_nas_login',
-               help='as13000_nas_username'),
-    cfg.StrOpt('as13000_nas_password',
-               help='as13000_nas_password'),
-    cfg.ListOpt('inspur_as13000_share_pool',
-                default=['Pool0'],
-                help='The Storage Pool Manila use.'),
-    cfg.IntOpt('as13000_token_available_time',
-               default=3600,
-               help='The valid period of token.'),
-    cfg.DictOpt('directory_protection_info',
-                default={'type': 0,
-                         "dc": 2, "cc": 1, "rn": 0, "st": 4},
-                help='The protection info of directory.')
-]
+    cfg.HostAddressOpt(
+        'as13000_nas_ip',
+        help='As13000 IP address.'),
+    cfg.IntOpt(
+        'as13000_api_port',
+        default=8088,
+        help='The port that Driver used to send request to the backend.'),
+    cfg.StrOpt(
+        'as13000_nas_login',
+        help='as13000_nas_username'),
+    cfg.StrOpt(
+        'as13000_nas_password',
+        help='as13000_nas_password'),
+    cfg.ListOpt(
+        'inspur_as13000_share_pool',
+        default=['Pool0'],
+        help='The Storage Pool Manila use.'),
+    cfg.IntOpt(
+        'as13000_token_available_time',
+        default=3600,
+        help='The valid period of token.'),
+    cfg.DictOpt(
+        'directory_protection_info',
+        default={
+            'type': 0,
+            "dc": 2,
+            "cc": 1,
+            "rn": 0,
+            "st": 4},
+        help='The protection info of directory.')]
 
 CONF = cfg.CONF
 CONF.register_opts(inspur_as13000_opts)
@@ -132,15 +142,16 @@ class RestAPIExecutor(object):
             attempts -= 1
             try:
                 return self.send_api(method, params, request_type)
-            except exception.NetworkException,e:
+            except exception.NetworkException as e:
                 LOG.error(e)
                 msge = str(e)
                 self.refresh_token(force=True)
                 time.sleep(1)
-            except exception.ShareBackendException,e:
+            except exception.ShareBackendException as e:
                 msge = str(e)
                 break
-        msg = r'Error running RestAPI : /rest/%s ; Error Message: %s' %(method,msge)
+        msg = r'Error running RestAPI : /rest/%s ; Error Message: %s' % (
+            method, msge)
         LOG.error(msg)
         raise exception.ShareBackendException(msg)
 
@@ -189,7 +200,8 @@ class RestAPIExecutor(object):
             raise exception.ShareBackendException(msg)
 
         if req.status_code != 200:
-            msg = 'Error code: %s , API: %s , Message: %s' % (req.status_code, req.url, req.text)
+            msg = 'Error code: %s , API: %s , Message: %s' % (
+                req.status_code, req.url, req.text)
             LOG.error(msg)
             raise exception.NetworkException(msg)
         try:
@@ -212,7 +224,7 @@ class RestAPIExecutor(object):
                 LOG.error(msg)
                 raise exception.NetworkException(msg)
             else:
-                message = response.get('message') # response['message']
+                message = response.get('message')  # response['message']
                 msg = ('The RestAPI exception output:'
                        'Message:%s, Code:%s' % (message, code))
                 LOG.error(msg)
@@ -240,7 +252,6 @@ class AS13000ShareDriver(driver.ShareDriver):
     VERSION = '1.1.0'
     PROTOCOL = 'NFS_CIFS'
 
-
     def __init__(self, *args, **kwargs):
         super(AS13000ShareDriver, self).__init__(False, *args, **kwargs)
         self.configuration.append_config_values(inspur_as13000_opts)
@@ -254,14 +265,14 @@ class AS13000ShareDriver(driver.ShareDriver):
         self.pools = ''
         self._token_time = 0
         self.ips = []
-        self._rest = None
-
+        self._rest = RestAPIExecutor(self.hostname, self.port,
+                                     self.username, self.password)
 
     @inspur_driver_debug_trace
     def do_setup(self, context):
         # get the RestAPIExecutor
-        self._rest = RestAPIExecutor(self.hostname, self.port,
-                                     self.username, self.password)
+        # self._rest = RestAPIExecutor(self.hostname, self.port,
+        #                              self.username, self.password)
         # get tokens for Driver
         self._rest.logins()
         self._token_time = time.time()
@@ -281,8 +292,12 @@ class AS13000ShareDriver(driver.ShareDriver):
     @inspur_driver_debug_trace
     def check_for_setup_error(self):
         # check the required flags in conf
-        required_flags = ['as13000_nas_ip', 'as13000_nas_login', 'as13000_nas_password',
-                          'inspur_as13000_share_pool', 'directory_protection_info']
+        required_flags = [
+            'as13000_nas_ip',
+            'as13000_nas_login',
+            'as13000_nas_password',
+            'inspur_as13000_share_pool',
+            'directory_protection_info']
         for flag in required_flags:
             if not self.configuration.safe_get(flag):
                 msg = '%s is not set.' % flag
@@ -306,7 +321,8 @@ class AS13000ShareDriver(driver.ShareDriver):
         #     LOG.error(msg)
         #     raise exception.InvalidInput(msg)
         # 1.create directory first
-        share_path = self._create_directory(share_name=share_name, pool_name=pool)
+        share_path = self._create_directory(
+            share_name=share_name, pool_name=pool)
         # 2.create nfs/cifs share second
         if share_proto == 'nfs':
             self._create_nfs_share(share_path=share_path)
@@ -320,7 +336,8 @@ class AS13000ShareDriver(driver.ShareDriver):
         # 3.set the quota of directory
         self._set_directory_quota(share_path, share_size)
 
-        locations = self._get_location_path(share_name, share_path, share_proto)
+        locations = self._get_location_path(
+            share_name, share_path, share_proto)
         LOG.debug('Create share: name:%s protocal:%s,location: %s'
                   % (share_name, share_proto, locations))
         return locations
@@ -355,9 +372,11 @@ class AS13000ShareDriver(driver.ShareDriver):
         # 4.set the quota of directory
         self._set_directory_quota(share_path, share_size)
 
-        locations = self._get_location_path(share_name, share_path, share_proto)
-        LOG.debug('Create share from snapshot: name:%s protocal:%s,location: %s'
-                  % (share_name, share_proto, locations))
+        locations = self._get_location_path(
+            share_name, share_path, share_proto)
+        LOG.debug(
+            'Create share from snapshot: name:%s protocal:%s,location: %s' %
+            (share_name, share_proto, locations))
         return locations
 
     @inspur_driver_debug_trace
@@ -392,7 +411,6 @@ class AS13000ShareDriver(driver.ShareDriver):
         self._set_directory_quota(share_path, new_size)
         LOG.debug('extend share:%s to new size %s GB' % (name, new_size))
 
-
     @inspur_driver_debug_trace
     def shrink_share(self, share, new_size, share_server=None):
         """shrink share to new size. Before shrinking, Driver will make sure
@@ -405,7 +423,8 @@ class AS13000ShareDriver(driver.ShareDriver):
                    ' on array. (used_capacity: %s, new: %s)).'
                    % (used_capacity, new_size))
             LOG.error(msg)
-            raise exception.ShareShrinkingError(share_id=share['id'],reason=msg)
+            raise exception.ShareShrinkingError(
+                share_id=share['id'], reason=msg)
         self._set_directory_quota(share_path, new_size)
         LOG.debug('shrink share:%s to new size %s GB' % (name, new_size))
 
@@ -423,9 +442,10 @@ class AS13000ShareDriver(driver.ShareDriver):
             LOG.error(msg)
             raise exception.InvalidInput(msg)
         if len(share_backend) == 0:
-            raise exception.ShareResourceNotFound(share_id=share['share_id'])
+            raise exception.ShareResourceNotFound(share_id=share['id'])
         else:
-            location = self._get_location_path(share_name, share_path, share_proto)
+            location = self._get_location_path(
+                share_name, share_path, share_proto)
             return location
 
     @inspur_driver_debug_trace
@@ -435,7 +455,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         pool, source_name, size, proto = self._get_share_pnsp(source_share)
         path = r'/%s/%s' % (pool, source_name)
         # format the name of snapshot
-        snap_name = 'snap_%s' % snapshot['snapshot_id']
+        snap_name = 'snap_%s' % snapshot['id']
         snap_name = self._format_name(snap_name)
         method = 'snapshot/directory'
         request_type = 'post'
@@ -454,7 +474,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         # if there no snaps in back,driver will do nothing but return
         snaps_backend = self._get_snapshots_from_share(path)
         if len(snaps_backend) == 0:
-           return
+            return
         # format the name of snapshot
         snap_name = 'snap_%s' % snapshot['snapshot_id']
         snap_name = self._format_name(snap_name)
@@ -465,7 +485,7 @@ class AS13000ShareDriver(driver.ShareDriver):
 
     @inspur_driver_debug_trace
     def update_access(self, context, share, access_rules, add_rules,
-                      delete_rules, share_server=None):# Todo
+                      delete_rules, share_server=None):  # Todo
         """update access of share"""
         self._clear_access(share)
         pool, share_name, size, proto = self._get_share_pnsp(share)
@@ -479,7 +499,10 @@ class AS13000ShareDriver(driver.ShareDriver):
         for access in access_rules:
             access_to = access['access_to']
             access_level = access['access_level']
-            client = {'name': access_to, 'type': client_type, 'authority': access_level}
+            client = {
+                'name': access_to,
+                'type': client_type,
+                'authority': access_level}
             access_clients.append(client)
         method = 'file/share/%s' % proto
         request_type = 'put'
@@ -666,7 +689,7 @@ class AS13000ShareDriver(driver.ShareDriver):
                   'parentPath': '/%s' % pool_name,
                   'authorityInfo': authority_info,
                   'dataProtection': data_protection,
-                  'poolName':self.storage_pool}
+                  'poolName': self.storage_pool}
         self._rest.send_rest_api(method=method,
                                  params=params,
                                  request_type=request_type)
@@ -776,7 +799,8 @@ class AS13000ShareDriver(driver.ShareDriver):
         """get all the snapshot of share"""
         method = 'snapshot/directory?path=%s' % path
         request_type = 'get'
-        snaps = self._rest.send_rest_api(method=method, request_type=request_type)
+        snaps = self._rest.send_rest_api(
+            method=method, request_type=request_type)
         return snaps
 
     @inspur_driver_debug_trace
@@ -841,7 +865,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         try:
             unit_of_used = re.findall(r'[A-Z]', capacity)
             unit_of_used = ''.join(unit_of_used)
-        except:
+        except BaseException:
             unit_of_used = ''
         capacity = capacity.replace(unit_of_used, '')
         capacity = float(capacity.replace(unit_of_used, ''))
@@ -886,7 +910,7 @@ class AS13000ShareDriver(driver.ShareDriver):
                                                 request_type=request_type)
         capacityInfo = profile_data['capacityInfo']
         used_capacity = '%smb' % capacityInfo['used']
-        total_capacity = '%smb'% capacityInfo['total']
+        total_capacity = '%smb' % capacityInfo['total']
 
         used_capacity = self._unit_convert(used_capacity)
         total_capacity = self._unit_convert(total_capacity)
