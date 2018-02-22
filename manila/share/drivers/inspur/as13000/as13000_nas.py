@@ -392,13 +392,6 @@ class AS13000ShareDriver(driver.ShareDriver):
         self._set_directory_quota(share_path, new_size)
         LOG.debug('extend share:%s to new size %s GB' % (name, new_size))
 
-    @inspur_driver_debug_trace
-    def shrink_share_police(self, share, new_size, share_server=None):
-        """V1.0.1_217_JINAN_police shrink share to new size. Fake"""
-        pool, name, size, proto = self._get_share_pnsp(share)
-        share_path = r'/%s/%s' % (pool, name)
-        self._set_directory_quota(share_path, new_size)
-        LOG.debug('shrink share:%s to new size %s GB' % (name, new_size))
 
     @inspur_driver_debug_trace
     def shrink_share(self, share, new_size, share_server=None):
@@ -412,7 +405,7 @@ class AS13000ShareDriver(driver.ShareDriver):
                    ' on array. (used_capacity: %s, new: %s)).'
                    % (used_capacity, new_size))
             LOG.error(msg)
-            raise exception.ShareShrinkingError(reason=msg)
+            raise exception.ShareShrinkingError(share_id=share['id'],reason=msg)
         self._set_directory_quota(share_path, new_size)
         LOG.debug('shrink share:%s to new size %s GB' % (name, new_size))
 
