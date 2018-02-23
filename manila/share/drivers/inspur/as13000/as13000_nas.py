@@ -476,7 +476,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         if len(snaps_backend) == 0:
             return
         # format the name of snapshot
-        snap_name = 'snap_%s' % snapshot['snapshot_id']
+        snap_name = 'snap_%s' % snapshot['id']
         snap_name = self._format_name(snap_name)
         method = 'snapshot/directory?path=%s&snapName=%s' % (path, snap_name)
         request_type = 'delete'
@@ -485,7 +485,7 @@ class AS13000ShareDriver(driver.ShareDriver):
 
     @inspur_driver_debug_trace
     def update_access(self, context, share, access_rules, add_rules,
-                      delete_rules, share_server=None):  # Todo
+                      delete_rules, share_server=None):
         """update access of share"""
         self._clear_access(share)
         pool, share_name, size, proto = self._get_share_pnsp(share)
@@ -494,7 +494,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         access_clients = []
         if proto == 'nfs':
             client_type = 0
-        if proto == 'cifs':
+        elif proto == 'cifs':
             client_type = 1
         for access in access_rules:
             access_to = access['access_to']
@@ -605,7 +605,7 @@ class AS13000ShareDriver(driver.ShareDriver):
             msg = (r'Quota of pool: /%s is not set, '
                    r'please set it in GUI of AS13000' % path)
             LOG.error(msg)
-            raise exception.ShareBackendException(reason=msg)
+            raise exception.ShareBackendException(msg=msg)
         else:
             hardunit = data.get('hardunit')
             used_capacity = data.get('capacity')
@@ -701,11 +701,6 @@ class AS13000ShareDriver(driver.ShareDriver):
         method = 'file/directory?path=%s' % share_path
         request_type = 'delete'
         self._rest.send_rest_api(method=method, request_type=request_type)
-
-    @inspur_driver_debug_trace
-    def _set_directory_quota_police(self, share_path, quota):
-        """V1.0.1_217_JINAN_police"""
-        pass
 
     @inspur_driver_debug_trace
     def _set_directory_quota(self, share_path, quota):
