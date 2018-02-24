@@ -22,7 +22,7 @@ import json
 import mock
 from oslo_config import cfg
 import requests
-
+import time
 
 from manila import context
 from manila import exception
@@ -390,15 +390,43 @@ class AS13000ShareDriverTestCase(test.TestCase):
         mock_login.assert_called_once()
         mock_vpe.assert_called_once()
 
-    # def test_check_for_setup_error(self):
-    #     self.as13000_driver.storage_pool = 'fakepool'
-    #     self.as13000_driver.ips = ['fake_ip']
-    #     self.as13000_driver.check_for_setup_error()
+    def test_check_for_setup_error(self):
+        mock_sg = self.mock_object(configuration.Configuration, 'safe_get',
+                                   mock.Mock(return_value='fake_config'))
+        self.as13000_driver.storage_pool = 'fakepool'
+        self.as13000_driver.ips = ['fake_ip']
+        self.as13000_driver.check_for_setup_error()
+        mock_sg.assert_called()
 
-    # def test_check_for_setup_error_fail1(self):
-    #     self.as13000_driver.storage_pool = 'fakepool'
-    #     self.as13000_driver.ips = ['fake_ip']
-    #     self.as13000_driver.check_for_setup_error()
+    def test_check_for_setup_error_config_not_set_fail(self):
+        mock_sg = self.mock_object(configuration.Configuration, 'safe_get',
+                                   mock.Mock(return_value=None))
+        self.as13000_driver.storage_pool = 'fakepool'
+        self.as13000_driver.ips = ['fake_ip']
+        self.assertRaises(
+            exception.InvalidInput,
+            self.as13000_driver.check_for_setup_error)
+        mock_sg.assert_called()
+
+    def test_check_for_setup_error_pool_status_fail(self):
+        mock_sg = self.mock_object(configuration.Configuration, 'safe_get',
+                                   mock.Mock(return_value='fake_config'))
+        self.as13000_driver.storage_pool = None
+        self.as13000_driver.ips = ['fake_ip']
+        self.assertRaises(
+            exception.ShareBackendException,
+            self.as13000_driver.check_for_setup_error)
+        mock_sg.assert_called()
+
+    def test_check_for_setup_error_node_status_fail(self):
+        mock_sg = self.mock_object(configuration.Configuration, 'safe_get',
+                                   mock.Mock(return_value='fake_config'))
+        self.as13000_driver.storage_pool = 'fakepool'
+        self.as13000_driver.ips = []
+        self.assertRaises(
+            exception.ShareBackendException,
+            self.as13000_driver.check_for_setup_error)
+        mock_sg.assert_called()
 
     @ddt.data(fake_share.fake_share(share_proto='nfs'),
               fake_share.fake_share(share_proto='cifs'))
@@ -869,6 +897,55 @@ class AS13000ShareDriverTestCase(test.TestCase):
             method=('file/share/%s' % share['share_proto']),
             params=params,
             request_type='put')
+
+    def test__update_share_stats(self):
+        mock_sg = self.mock_object(configuration.Configuration, 'safe_get',
+                                   mock.Mock(return_value='fake_as13000'))
+        self.as13000_driver.pools = ['fake_pool']
+        mock_gps = self.mock_object(self.as13000_driver, '_get_pools_stats',
+                                    mock.Mock(return_value='fake_pool'))
+        self.as13000_driver._token_time = time.time()
+        mock_rt = self.mock_object(as13000_nas.RestAPIExecutor,
+                                   'refresh_token')
+        self.as13000_driver._update_share_stats()
+        data = {}
+        data['vendor_name'] = self.as13000_driver.VENDOR
+        data['driver_version'] = self.as13000_driver.VERSION
+        data['storage_protocol'] = self.as13000_driver.PROTOCOL
+        data['share_backend_name'] = 'fake_as13000'
+        data['driver_handles_share_servers'] = False
+        data['snapshot_support'] = True
+        data['create_share_from_snapshot_support'] = True
+        data['pools'] = ['fake_pool']
+        self.assertEqual(data, self.as13000_driver._stats)
+        mock_sg.assert_called_once_with('share_backend_name')
+        mock_gps.assert_called_once_with('fake_pool')
+        mock_rt.assert_not_called()
+
+    def test__update_share_stats(self):
+        mock_sg = self.mock_object(configuration.Configuration, 'safe_get',
+                                   mock.Mock(return_value='fake_as13000'))
+        self.as13000_driver.pools = ['fake_pool']
+        mock_gps = self.mock_object(self.as13000_driver, '_get_pools_stats',
+                                    mock.Mock(return_value='fake_pool'))
+        self.as13000_driver._token_time = (
+            time.time() - self.as13000_driver.token_available_time - 1)
+        mock_rt = self.mock_object(as13000_nas.RestAPIExecutor,
+                                   'refresh_token')
+        self.as13000_driver._update_share_stats()
+        data = {}
+        data['vendor_name'] = self.as13000_driver.VENDOR
+        data['driver_version'] = self.as13000_driver.VERSION
+        data['storage_protocol'] = self.as13000_driver.PROTOCOL
+        data['share_backend_name'] = 'fake_as13000'
+        data['driver_handles_share_servers'] = False
+        data['snapshot_support'] = True
+        data['create_share_from_snapshot_support'] = True
+        data['pools'] = ['fake_pool']
+        self.assertEqual(data, self.as13000_driver._stats)
+        mock_sg.assert_called_once_with('share_backend_name')
+        mock_gps.assert_called_once_with('fake_pool')
+        mock_rt.assert_called_once()
 
     @ddt.data(fake_share.fake_share(share_proto='nfs'),
               fake_share.fake_share(share_proto='cifs'))
