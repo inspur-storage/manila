@@ -22,17 +22,15 @@ import json
 import mock
 from oslo_config import cfg
 import requests
-import six
 
 
-from manila.common import constants as const
 from manila import context
 from manila import exception
 from manila.share import configuration
 from manila.share.drivers.inspur.as13000 import as13000_nas
 from manila.tests import fake_share
 from manila import test
-
+from manila.share import utils as share_utils
 
 CONF = cfg.CONF
 
@@ -128,44 +126,44 @@ class RestAPIExecutorTestCase(test.TestCase):
             'fake_params',
             'fake_type')
 
-    # def test_send_rest_api_retry(self):
-    #     expected = {'value': 'abc'}
-    #     mock_sa = self.mock_object(
-    #         self.rest_api,
-    #         'send_api',
-    #         mock.Mock(
-    #             side_effect=(
-    #                 exception.NetworkException,
-    #                 expected)))
-    #     # mock.Mock(side_effect=exception.NetworkException))
-    #     mock_rt = self.mock_object(self.rest_api, 'refresh_token', mock.Mock())
-    #     result = self.rest_api.send_rest_api(
-    #         method='fake_method',
-    #         params='fake_params',
-    #         request_type='fake_type'
-    #     )
-    #     self.assertEquals(expected, result)
-    #     mock_sa.assert_called_with(
-    #         'fake_method',
-    #         'fake_params',
-    #         'fake_type')
-    #     mock_rt.assert_called_with(force=True)
+    def test_send_rest_api_retry(self):
+        expected = {'value': 'abc'}
+        mock_sa = self.mock_object(
+            self.rest_api,
+            'send_api',
+            mock.Mock(
+                side_effect=(
+                    exception.NetworkException,
+                    expected)))
+        # mock.Mock(side_effect=exception.NetworkException))
+        mock_rt = self.mock_object(self.rest_api, 'refresh_token', mock.Mock())
+        result = self.rest_api.send_rest_api(
+            method='fake_method',
+            params='fake_params',
+            request_type='fake_type'
+        )
+        self.assertEquals(expected, result)
+        mock_sa.assert_called_with(
+            'fake_method',
+            'fake_params',
+            'fake_type')
+        mock_rt.assert_called_with(force=True)
 
-    # def test_send_rest_api_3times_fail(self):
-    #     mock_sa = self.mock_object(
-    #         self.rest_api, 'send_api', mock.Mock(
-    #             side_effect=(exception.NetworkException)))
-    #     mock_rt = self.mock_object(self.rest_api, 'refresh_token', mock.Mock())
-    #     self.assertRaises(
-    #         exception.ShareBackendException,
-    #         self.rest_api.send_rest_api,
-    #         method='fake_method',
-    #         params='fake_params',
-    #         request_type='fake_type')
-    #     mock_sa.assert_called_with('fake_method',
-    #                                'fake_params',
-    #                                'fake_type')
-    #     mock_rt.assert_called_with(force=True)
+    def test_send_rest_api_3times_fail(self):
+        mock_sa = self.mock_object(
+            self.rest_api, 'send_api', mock.Mock(
+                side_effect=(exception.NetworkException)))
+        mock_rt = self.mock_object(self.rest_api, 'refresh_token', mock.Mock())
+        self.assertRaises(
+            exception.ShareBackendException,
+            self.rest_api.send_rest_api,
+            method='fake_method',
+            params='fake_params',
+            request_type='fake_type')
+        mock_sa.assert_called_with('fake_method',
+                                   'fake_params',
+                                   'fake_type')
+        mock_rt.assert_called_with(force=True)
 
     def test_send_rest_api_backend_error_fail(self):
         mock_sa = self.mock_object(self.rest_api, 'send_api', mock.Mock(
@@ -1137,6 +1135,116 @@ class AS13000ShareDriverTestCase(test.TestCase):
         result = self.as13000_driver._get_cifs_share('fakename')
         self.assertEqual(expect, result)
         method = 'file/share/cifs?name=%s' % 'fakename'
+        request_type = 'get'
+        mock_rest.assert_called_once_with(method=method,
+                                          request_type=request_type)
+
+    def test__clone_directory_to_dest(self):
+        shares = fake_share.fake_share(host='fakehost')
+        fake_snapshot = {'share_id': 'fakeshareid',
+                         'snapshot_id': 'fakesnapshotid',
+                         'share_instance': shares}
+        mock_util = self.mock_object(share_utils, 'extract_host',
+                                     mock.Mock(return_value='fakepool'))
+        mock_fn = self.mock_object(
+            self.as13000_driver,
+            '_format_name',
+            mock.Mock(
+                side_effect=(
+                    'share_fakeshareid',
+                    'snap_fakesnapshotid')))
+        mock_rest = self.mock_object(
+            as13000_nas.RestAPIExecutor, 'send_rest_api')
+        self.as13000_driver._clone_directory_to_dest(fake_snapshot, 'fakepath')
+        mock_util.assert_called_once_with(shares['host'], level='pool')
+        mock_fn.assert_called()
+        method = 'snapshot/directory/clone'
+        request_type = 'post'
+        params = {'path': '/%s/%s' % ('fakepool', 'share_fakeshareid'),
+                  'snapName': 'snap_%s' % fake_snapshot['snapshot_id'],
+                  'destPath': 'fakepath'}
+        mock_rest.assert_called_once_with(method=method,
+                                          request_type=request_type,
+                                          params=params)
+
+    def test__get_snapshots_from_share(self):
+        mock_rest = self.mock_object(as13000_nas.RestAPIExecutor,
+                                     'send_rest_api',
+                                     mock.Mock(return_value='fakesnap'))
+        result = self.as13000_driver._get_snapshots_from_share('fakepath')
+        self.assertEqual('fakesnap', result)
+        method = 'snapshot/directory?path=%s' % 'fakepath'
+        request_type = 'get'
+        mock_rest.assert_called_once_with(method=method,
+                                          request_type=request_type)
+
+    @ddt.data('nfs', 'cifs')
+    def test__get_location_path(self, proto):
+        self.as13000_driver.ips = ['ip1', 'ip2']
+        if proto is 'nfs':
+            expect = [{'path': r'%(ips)s:%(share_phth)s'
+                               % {'ips': ip, 'share_phth': 'fakepool'}}
+                      for ip in ['ip1', 'ip2']]
+        elif proto is 'cifs':
+            expect = [{'path': r'\\%(ips)s\%(share_name)s'
+                               % {'ips': ip,
+                                  'share_name': 'fakeshare'}}
+                      for ip in ['ip1', 'ip2']]
+
+        result = self.as13000_driver._get_location_path('fakeshare',
+                                                        'fakepool',
+                                                        proto)
+        self.assertEqual(expect, result)
+
+    def test__get_nodes_ips(self):
+        cluster = [{'ip': 'fakeip1', 'runningStatus': 1, 'healthStatus': 1},
+                   {'ip': 'fakeip2', 'runningStatus': 1, 'healthStatus': 1},
+                   {'ip': 'fakeip3', 'runningStatus': 1, 'healthStatus': 1}]
+        mock_rest = self.mock_object(as13000_nas.RestAPIExecutor,
+                                     'send_rest_api',
+                                     mock.Mock(return_value=cluster))
+        expect = ['fakeip1', 'fakeip2', 'fakeip3']
+        result = self.as13000_driver._get_nodes_ips()
+        self.assertEqual(expect, result)
+        mock_rest.assert_called_once_with(method='cluster/node',
+                                          request_type='get')
+
+    def test__get_share_pnsp(self):
+        share = fake_share.fake_share(host='fakehost')
+        mock_utils = self.mock_object(share_utils, 'extract_host',
+                                      mock.Mock(return_value='fakepool'))
+        mock_fn = self.mock_object(self.as13000_driver, '_format_name',
+                                   mock.Mock(return_value='share_fakeid'))
+        expect = ('fakepool', 'share_fakeid', 1, 'fake_proto')
+        result = self.as13000_driver._get_share_pnsp(share)
+        self.assertEqual(expect, result)
+        mock_utils.assert_called_once_with('fakehost', level='pool')
+        mock_fn.assert_called_once_with('share_%s' % share['id'])
+
+    @ddt.data('50000000', '500000k', '50mb', '50G', '50TB')
+    def test__unit_convert(self, capacity):
+        trans = {'50000000': (50000000 / 1024**3),
+                 '500000k': 500000 / (1024**2),
+                 '50mb': 50 / 1024,
+                 '50G': 50,
+                 '50TB': 50 * 1024}
+        expect = trans[capacity]
+        result = self.as13000_driver._unit_convert(capacity)
+        self.assertEqual(expect, result)
+
+    def test__format_name(self):
+        a = 'atest-1234567890-1234567890-1234567890'
+        expect = 'atest_1234567890_1234567890_12'
+        result = self.as13000_driver._format_name(a)
+        self.assertEqual(expect, result)
+
+    def test__get_storage_pool(self):
+        mock_rest = self.mock_object(as13000_nas.RestAPIExecutor,
+                                     'send_rest_api',
+                                     mock.Mock(return_value=[{'poolName': 'fakepool'}]))
+        result = self.as13000_driver._get_storage_pool('fakepath')
+        self.assertEqual('fakepool', result)
+        method = 'file/directory/detail?path=/%s' % 'fakepath'
         request_type = 'get'
         mock_rest.assert_called_once_with(method=method,
                                           request_type=request_type)

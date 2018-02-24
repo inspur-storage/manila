@@ -623,7 +623,6 @@ class AS13000ShareDriver(driver.ShareDriver):
         """get the stats of pools incloud capacity and other infomations.
         get system instead of get quata"""
         total_capacity, used_capacity = self._get_directory_quata(path)
-        #total_capacity, used_capacity = self._get_device_profile()
         free_capacity = total_capacity - used_capacity
         pool = {}
         pool['pool_name'] = path
@@ -846,7 +845,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         add 'share_' to the beginning,and convert '-' to '_'
         """
         pool = share_utils.extract_host(share['host'], level='pool')
-        share_name_row = 'share_%s' % share['share_id']
+        share_name_row = 'share_%s' % share['id']
         share_name = self._format_name(share_name_row)
         share_size = share['size']
         share_proto = share['share_proto'].lower()
@@ -895,18 +894,3 @@ class AS13000ShareDriver(driver.ShareDriver):
                                                request_type=request_type)
         storage_pool = path_detail[0]['poolName']
         return storage_pool
-
-    @inspur_driver_debug_trace
-    def _get_device_profile(self):
-        """V1.0.1_217_JINAN_police"""
-        method = 'device/profile'
-        request_type = 'get'
-        profile_data = self._rest.send_rest_api(method=method,
-                                                request_type=request_type)
-        capacityInfo = profile_data['capacityInfo']
-        used_capacity = '%smb' % capacityInfo['used']
-        total_capacity = '%smb' % capacityInfo['total']
-
-        used_capacity = self._unit_convert(used_capacity)
-        total_capacity = self._unit_convert(total_capacity)
-        return total_capacity, used_capacity
