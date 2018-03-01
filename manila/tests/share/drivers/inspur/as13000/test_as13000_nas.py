@@ -28,9 +28,10 @@ from manila import context
 from manila import exception
 from manila.share import configuration
 from manila.share.drivers.inspur.as13000 import as13000_nas
-from manila.tests import fake_share
-from manila import test
 from manila.share import utils as share_utils
+from manila import test
+from manila.tests import fake_share
+
 
 CONF = cfg.CONF
 
@@ -86,7 +87,7 @@ class RestAPIExecutorTestCase(test.TestCase):
                                     mock.Mock(return_value=fake_response))
         result = self.rest_api.login()
 
-        self.assertEquals('fake_token', result)
+        self.assertEqual('fake_token', result)
 
         login_params = {'name': test_config.as13000_nas_login,
                         'password': test_config.as13000_nas_password}
@@ -120,7 +121,7 @@ class RestAPIExecutorTestCase(test.TestCase):
             method='fake_method',
             params='fake_params',
             request_type='fake_type')
-        self.assertEquals(expected, result)
+        self.assertEqual(expected, result)
         mock_sa.assert_called_once_with(
             'fake_method',
             'fake_params',
@@ -142,7 +143,8 @@ class RestAPIExecutorTestCase(test.TestCase):
             params='fake_params',
             request_type='fake_type'
         )
-        self.assertEquals(expected, result)
+        self.assertEqual(expected, result)
+
         mock_sa.assert_called_with(
             'fake_method',
             'fake_params',
@@ -167,7 +169,8 @@ class RestAPIExecutorTestCase(test.TestCase):
 
     def test_send_rest_api_backend_error_fail(self):
         mock_sa = self.mock_object(self.rest_api, 'send_api', mock.Mock(
-            side_effect=(exception.ShareBackendException('fake_error_message'))))
+            side_effect=(exception.ShareBackendException(
+                'fake_error_message'))))
         mock_rt = self.mock_object(self.rest_api, 'refresh_token')
         self.assertRaises(
             exception.ShareBackendException,
@@ -311,7 +314,6 @@ class RestAPIExecutorTestCase(test.TestCase):
             requests, 'post', mock.Mock(
                 return_value=FakeResponse(
                     200, fake_output)))
-       # self.rest_api.send_api()
         self.assertRaises(
             exception.ShareBackendException,
             self.rest_api.send_api,
@@ -669,7 +671,7 @@ class AS13000ShareDriverTestCase(test.TestCase):
         mock_sdq.assert_called_once_with(share_path, new_size)
 
     def test_shrink_share_fail(self):
-        share = fake_share.fake_share(size=20)
+        share = fake_share.fake_share(size=20, share_id='fakeid')
         new_size = 10
         mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
                                     mock.Mock(
@@ -692,8 +694,8 @@ class AS13000ShareDriverTestCase(test.TestCase):
         mock_gsp.assert_called_once_with(share)
         mock_gdq.assert_called_once_with(share_path)
 
-    @ddt.data(fake_share.fake_share(share_proto='nfs'),
-              fake_share.fake_share(share_proto='cifs'))
+    @ddt.data(fake_share.fake_share(share_proto='nfs', share_id='fakeid'),
+              fake_share.fake_share(share_proto='cifs', share_id='fakeid'))
     def test_ensure_share(self, share):
         mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
                                     mock.Mock(
@@ -725,7 +727,7 @@ class AS13000ShareDriverTestCase(test.TestCase):
             share['name'], fake_path, share['share_proto'])
 
     def test_ensure_share_fail_1(self):
-        share = fake_share.fake_share()
+        share = fake_share.fake_share(share_id='fakeid')
         mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
                                     mock.Mock(
                                         return_value=(
@@ -740,8 +742,8 @@ class AS13000ShareDriverTestCase(test.TestCase):
             share)
         mock_gsp.assert_called_once_with(share)
 
-    @ddt.data(fake_share.fake_share(share_proto='nfs'),
-              fake_share.fake_share(share_proto='cifs'))
+    @ddt.data(fake_share.fake_share(share_proto='nfs', share_id='fakeid'),
+              fake_share.fake_share(share_proto='cifs', share_id='fakeid'))
     def test_ensure_share_None_share_fail(self, share):
         mock_gsp = self.mock_object(self.as13000_driver, '_get_share_pnsp',
                                     mock.Mock(
@@ -922,7 +924,7 @@ class AS13000ShareDriverTestCase(test.TestCase):
         mock_gps.assert_called_once_with('fake_pool')
         mock_rt.assert_not_called()
 
-    def test__update_share_stats(self):
+    def test__update_share_stats_refresh_token(self):
         mock_sg = self.mock_object(configuration.Configuration, 'safe_get',
                                    mock.Mock(return_value='fake_as13000'))
         self.as13000_driver.pools = ['fake_pool']
@@ -1016,8 +1018,8 @@ class AS13000ShareDriverTestCase(test.TestCase):
                                    '_unit_convert',
                                    mock.Mock(return_value=50))
         expected = (200, 50)
-        total_capacity, used_capacity = self.as13000_driver._get_directory_quata(
-            'fakepath')
+        total_capacity, used_capacity = (
+            self.as13000_driver._get_directory_quata('fakepath'))
         self.assertEqual(expected, (total_capacity, used_capacity))
         method = 'file/quota/directory?path=/%s' % 'fakepath'
         request_type = 'get'
@@ -1287,7 +1289,7 @@ class AS13000ShareDriverTestCase(test.TestCase):
                                           request_type='get')
 
     def test__get_share_pnsp(self):
-        share = fake_share.fake_share(host='fakehost')
+        share = fake_share.fake_share(host='fakehost', share_id='fakeid')
         mock_utils = self.mock_object(share_utils, 'extract_host',
                                       mock.Mock(return_value='fakepool'))
         mock_fn = self.mock_object(self.as13000_driver, '_format_name',
@@ -1311,14 +1313,15 @@ class AS13000ShareDriverTestCase(test.TestCase):
 
     def test__format_name(self):
         a = 'atest-1234567890-1234567890-1234567890'
-        expect = 'atest_1234567890_1234567890_12'
+        expect = 'atest_1234567890_1234567890_1234'
         result = self.as13000_driver._format_name(a)
         self.assertEqual(expect, result)
 
     def test__get_storage_pool(self):
         mock_rest = self.mock_object(as13000_nas.RestAPIExecutor,
                                      'send_rest_api',
-                                     mock.Mock(return_value=[{'poolName': 'fakepool'}]))
+                                     mock.Mock(return_value=[{'poolName':
+                                                              'fakepool'}]))
         result = self.as13000_driver._get_storage_pool('fakepath')
         self.assertEqual('fakepool', result)
         method = 'file/directory/detail?path=/%s' % 'fakepath'

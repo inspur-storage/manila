@@ -21,11 +21,13 @@ import functools
 import json
 import re
 import requests
+import six
 import time
 
 from oslo_config import cfg
 from oslo_log import log as logging
 from oslo_utils import units
+
 from manila import exception
 from manila.share import driver
 from manila.share import utils as share_utils
@@ -71,10 +73,10 @@ CONF.register_opts(inspur_as13000_opts)
 
 def inspur_driver_debug_trace(f):
     """Log the method entrance and exit including active backend name.
+
     This should only be used on VolumeDriver class methods. It depends on
     having a 'self' argument that is a AS13000_Driver.
     """
-
     @functools.wraps(f)
     def wrapper(*args, **kwargs):
         driver = args[0]
@@ -83,10 +85,10 @@ def inspur_driver_debug_trace(f):
                                                    "method": f.__name__}
         # backend_name = driver._update_volume_stats.get('volume_backend_name')
         backend_name = driver.configuration.share_backend_name
-        LOG.debug("[%(backend_name)s] Enter %(method_name)s" %
+        LOG.debug("[%(backend_name)s] Enter %(method_name)s",
                   {"method_name": method_name, "backend_name": backend_name})
         result = f(*args, **kwargs)
-        LOG.debug("[%(backend_name)s] Leave %(method_name)s" %
+        LOG.debug("[%(backend_name)s] Leave %(method_name)s",
                   {"method_name": method_name, "backend_name": backend_name})
         return result
 
@@ -143,23 +145,27 @@ class RestAPIExecutor(object):
             try:
                 return self.send_api(method, params, request_type)
             except exception.NetworkException as e:
-                LOG.error(e)
-                msge = str(e)
+                LOG.error(six.text_type(e))
+                msge = str(six.text_type(e))
                 self.refresh_token(force=True)
                 time.sleep(1)
             except exception.ShareBackendException as e:
-                msge = str(e)
+                msge = str(six.text_type(e))
                 break
-        msg = r'Error running RestAPI : /rest/%s ; Error Message: %s' % (
-            method, msge)
+        msg = ('Error running RestAPI: /rest/%(method)s; '
+               'Error Message:%(msge)s; request_type: %(type)s'
+               % {'method': method, 'msge': msge, 'type': request_type})
         LOG.error(msg)
         raise exception.ShareBackendException(msg)
 
     def send_api(self, method, params=None, request_type='post'):
         if params is not None:
             params = json.dumps(params)
-        url = 'http://%s:%s/%s/%s' % (self._hostname, self._port, 'rest',
-                                      method)
+        url = ('http://%(hostname)s:%(port)s/%(rest)s/%(method)s'
+               % {'hostname': self._hostname,
+                  'port': self._port,
+                  'rest': 'rest',
+                  'method': method})
         # https = {'method': request_type,
         #          'utl': url,
         #          'params': params}
@@ -200,8 +206,8 @@ class RestAPIExecutor(object):
             raise exception.ShareBackendException(msg)
 
         if req.status_code != 200:
-            msg = 'Error code: %s , API: %s , Message: %s' % (
-                req.status_code, req.url, req.text)
+            msg = 'Error code: %(code)s , API: %(api)s , Message: %(msg)s'\
+                  % {'code': req.status_code, 'api': req.url, 'msg': req.text}
             LOG.error(msg)
             raise exception.NetworkException(msg)
         try:
@@ -240,13 +246,15 @@ class RestAPIExecutor(object):
 
 
 class AS13000ShareDriver(driver.ShareDriver):
-    """ AS13000 Share Driver
 
-        Version history:
-        V1.0.0:    Initial version
-        V1.1.0:    fix location problem and extend unit_convert
-                   provide more exception info
-        """
+    """AS13000 Share Driver
+
+    Version history:
+    V1.0.0:    Initial version
+    V1.1.0:    fix location problem and extend unit_convert
+    provide more exception info
+
+    """
 
     VENDOR = 'INSPUR'
     VERSION = '1.1.0'
@@ -338,8 +346,9 @@ class AS13000ShareDriver(driver.ShareDriver):
 
         locations = self._get_location_path(
             share_name, share_path, share_proto)
-        LOG.debug('Create share: name:%s protocal:%s,location: %s'
-                  % (share_name, share_proto, locations))
+        LOG.debug('Create share: name:%(name)s'
+                  ' protocal:%(proto)s,location: %(loc)s',
+                  {'name': share_name, 'proto': share_proto, 'loc': locations})
         return locations
 
     @inspur_driver_debug_trace
@@ -375,8 +384,9 @@ class AS13000ShareDriver(driver.ShareDriver):
         locations = self._get_location_path(
             share_name, share_path, share_proto)
         LOG.debug(
-            'Create share from snapshot: name:%s protocal:%s,location: %s' %
-            (share_name, share_proto, locations))
+            'Create share from snapshot:'
+            ' name:%(name)s protocal:%(proto)s,location: %(loc)s',
+            {'name': share_name, 'proto': share_proto, 'loc': locations})
         return locations
 
     @inspur_driver_debug_trace
@@ -401,7 +411,7 @@ class AS13000ShareDriver(driver.ShareDriver):
             LOG.error(msg)
             raise exception.InvalidInput(msg)
         self._delete_directory(share_path)
-        LOG.debug('Delete share: name:%s' % share_name)
+        LOG.debug('Delete share: name:%s', share_name)
 
     @inspur_driver_debug_trace
     def extend_share(self, share, new_size, share_server=None):
@@ -409,12 +419,16 @@ class AS13000ShareDriver(driver.ShareDriver):
         pool, name, size, proto = self._get_share_pnsp(share)
         share_path = r'/%s/%s' % (pool, name)
         self._set_directory_quota(share_path, new_size)
-        LOG.debug('extend share:%s to new size %s GB' % (name, new_size))
+        LOG.debug('extend share:%(name)s to new size %(size)s GB',
+                  {'name': name, 'size': new_size})
 
     @inspur_driver_debug_trace
     def shrink_share(self, share, new_size, share_server=None):
-        """shrink share to new size. Before shrinking, Driver will make sure
-        the new size is larger the share already used"""
+        """shrink share to new size.
+
+        Before shrinking, Driver will make sure
+        the new size is larger the share already used
+        """
         pool, name, size, proto = self._get_share_pnsp(share)
         share_path = r'/%s/%s' % (pool, name)
         current_quota, used_capacity = self._get_directory_quata(share_path)
@@ -424,9 +438,10 @@ class AS13000ShareDriver(driver.ShareDriver):
                    % (used_capacity, new_size))
             LOG.error(msg)
             raise exception.ShareShrinkingError(
-                share_id=share['id'], reason=msg)
+                share_id=share['share_id'], reason=msg)
         self._set_directory_quota(share_path, new_size)
-        LOG.debug('shrink share:%s to new size %s GB' % (name, new_size))
+        LOG.debug('shrink share:%(name)s to new size %(size)s GB',
+                  {'name': name, 'size': new_size})
 
     @inspur_driver_debug_trace
     def ensure_share(self, context, share, share_server=None):
@@ -442,7 +457,7 @@ class AS13000ShareDriver(driver.ShareDriver):
             LOG.error(msg)
             raise exception.InvalidInput(msg)
         if len(share_backend) == 0:
-            raise exception.ShareResourceNotFound(share_id=share['id'])
+            raise exception.ShareResourceNotFound(share_id=share['share_id'])
         else:
             location = self._get_location_path(
                 share_name, share_path, share_proto)
@@ -463,7 +478,8 @@ class AS13000ShareDriver(driver.ShareDriver):
         self._rest.send_rest_api(method=method,
                                  params=params,
                                  request_type=request_type)
-        LOG.debug('Create snapshot %s of share %s' % (snap_name, source_name))
+        LOG.debug('Create snapshot %(snap)s of share %(share)s',
+                  {'snap': snap_name, 'share': source_name})
 
     @inspur_driver_debug_trace
     def delete_snapshot(self, context, snapshot, share_server=None):
@@ -481,7 +497,8 @@ class AS13000ShareDriver(driver.ShareDriver):
         method = 'snapshot/directory?path=%s&snapName=%s' % (path, snap_name)
         request_type = 'delete'
         self._rest.send_rest_api(method=method, request_type=request_type)
-        LOG.debug('Delete snapshot %s of share %s' % (snap_name, source_name))
+        LOG.debug('Create snapshot %(snap)s of share %(share)s',
+                  {'snap': snap_name, 'share': source_name})
 
     @inspur_driver_debug_trace
     def update_access(self, context, share, access_rules, add_rules,
@@ -519,8 +536,9 @@ class AS13000ShareDriver(driver.ShareDriver):
         self._rest.send_rest_api(method=method,
                                  params=params,
                                  request_type=request_type)
-        LOG.debug('Update access of share name:%s, accesses:%s'
-                  % (share['id'], access_rules))
+        LOG.debug('Update access of share name:'
+                  ' %(name)s, accesses: %(access)s',
+                  {'name': share_name, 'access': access_rules})
 
     @inspur_driver_debug_trace
     def _update_share_stats(self, data=None):
@@ -550,7 +568,7 @@ class AS13000ShareDriver(driver.ShareDriver):
             self._rest.refresh_token()
             self._token_time = time.time()
             LOG.debug('Token of Driver has been refreshed')
-        LOG.debug('Update share stats : %s' % self._stats)
+        LOG.debug('Update share stats : %s', self._stats)
 
     @inspur_driver_debug_trace
     def _clear_access(self, share):
@@ -578,8 +596,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         self._rest.send_rest_api(method=method,
                                  params=params,
                                  request_type=request_type)
-        LOG.debug('Clear all the access of share name:%s'
-                  % share['id'],)
+        LOG.debug('Clear all the access of share name:%s', share['name'],)
 
     @inspur_driver_debug_trace
     def _validate_pools_exist(self):
@@ -620,8 +637,8 @@ class AS13000ShareDriver(driver.ShareDriver):
 
     @inspur_driver_debug_trace
     def _get_pools_stats(self, path):
-        """get the stats of pools incloud capacity and other infomations.
-        get system instead of get quata"""
+        """Get the stats of pools. Incloud capacity and other infomations."""
+
         total_capacity, used_capacity = self._get_directory_quata(path)
         free_capacity = total_capacity - used_capacity
         pool = {}
@@ -641,7 +658,7 @@ class AS13000ShareDriver(driver.ShareDriver):
 
     @inspur_driver_debug_trace
     def _get_directory_list(self, path):
-        """ Get all the directory list of target path"""
+        """Get all the directory list of target path"""
         method = 'file/directory?path=%s' % path
         request_type = 'get'
         directory_list = self._rest.send_rest_api(method=method,
@@ -692,7 +709,8 @@ class AS13000ShareDriver(driver.ShareDriver):
         self._rest.send_rest_api(method=method,
                                  params=params,
                                  request_type=request_type)
-        return r'/%s/%s' % (pool_name, share_name)
+        return r'/%(pool)s/%(share)s' % {'pool': pool_name,
+                                         'share': share_name}
 
     @inspur_driver_debug_trace
     def _delete_directory(self, share_path):
@@ -785,8 +803,9 @@ class AS13000ShareDriver(driver.ShareDriver):
         self._rest.send_rest_api(method=method,
                                  params=params,
                                  request_type=request_type)
-        LOG.debug('clone the directory:%s to the new directory: %s'
-                  % (snap_path, dest_path))
+        LOG.debug(
+            'clone the directory:%(snap)s to the new directory: %(dest)s', {
+                'snap': snap_path, 'dest': dest_path})
 
     @inspur_driver_debug_trace
     def _get_snapshots_from_share(self, path):
@@ -836,8 +855,8 @@ class AS13000ShareDriver(driver.ShareDriver):
 
     @inspur_driver_debug_trace
     def _get_share_pnsp(self, share):
-        """
-        Get pool, share_name, share_size, share_proto of share.
+        """Get pool, share_name, share_size, share_proto of share.
+
         AS13000 require all the names can only consist of letters,numbers,
         and undercores,and must begin with a letter.
         Also the length of name must less than 32 character.
@@ -845,7 +864,7 @@ class AS13000ShareDriver(driver.ShareDriver):
         add 'share_' to the beginning,and convert '-' to '_'
         """
         pool = share_utils.extract_host(share['host'], level='pool')
-        share_name_row = 'share_%s' % share['id']
+        share_name_row = 'share_%s' % share['share_id']
         share_name = self._format_name(share_name_row)
         share_size = share['size']
         share_proto = share['share_proto'].lower()
@@ -882,7 +901,7 @@ class AS13000ShareDriver(driver.ShareDriver):
     @inspur_driver_debug_trace
     def _format_name(self, name):
         """format name to meet the backend requirements"""
-        name = name[0:30]
+        name = name[0:32]
         name = name.replace('-', '_')
         return name
 
