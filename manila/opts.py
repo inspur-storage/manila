@@ -23,7 +23,6 @@ import oslo_concurrency.opts
 import oslo_log._options
 import oslo_middleware.opts
 import oslo_policy.opts
-import oslo_service.sslutils
 
 import manila.api.common
 import manila.api.middleware.auth
@@ -34,7 +33,6 @@ import manila.coordination
 import manila.db.api
 import manila.db.base
 import manila.exception
-import manila.message.api
 import manila.network
 import manila.network.linux.interface
 import manila.network.neutron.api
@@ -70,8 +68,7 @@ import manila.share.drivers.hitachi.hsp.driver
 import manila.share.drivers.hpe.hpe_3par_driver
 import manila.share.drivers.huawei.huawei_nas
 import manila.share.drivers.ibm.gpfs
-import manila.share.drivers.infinidat.infinibox
-import manila.share.drivers.inspur.as13000.as13000_nas
+import manila.share.drivers.inspur.as13000_nas
 import manila.share.drivers.lvm
 import manila.share.drivers.maprfs.maprfs_native
 import manila.share.drivers.netapp.options
@@ -106,20 +103,12 @@ _global_opt_lists = [
     manila.db.api.db_opts,
     [manila.db.base.db_driver_opt],
     manila.exception.exc_log_opts,
-    manila.message.api.messages_opts,
     manila.network.linux.interface.OPTS,
     manila.network.network_opts,
-    manila.network.network_base_opts,
-    manila.network.neutron.neutron_network_plugin.
-    neutron_network_plugin_opts,
-    manila.network.neutron.neutron_network_plugin.
-    neutron_single_network_plugin_opts,
     manila.network.neutron.neutron_network_plugin.
     neutron_bind_network_plugin_opts,
     manila.network.neutron.neutron_network_plugin.
-    neutron_binding_profile,
-    manila.network.neutron.neutron_network_plugin.
-    neutron_binding_profile_opts,
+    neutron_single_network_plugin_opts,
     manila.network.standalone_network_plugin.standalone_network_plugin_opts,
     manila.quota.quota_opts,
     manila.scheduler.drivers.base.scheduler_driver_opts,
@@ -153,10 +142,7 @@ _global_opt_lists = [
     manila.share.drivers.hpe.hpe_3par_driver.HPE3PAR_OPTS,
     manila.share.drivers.huawei.huawei_nas.huawei_opts,
     manila.share.drivers.ibm.gpfs.gpfs_share_opts,
-    manila.share.drivers.infinidat.infinibox.infinidat_auth_opts,
-    manila.share.drivers.infinidat.infinibox.infinidat_connection_opts,
-    manila.share.drivers.infinidat.infinibox.infinidat_general_opts,
-    manila.share.drivers.inspur.as13000.as13000_nas.inspur_as13000_opts,
+    manila.share.drivers.inspur.as13000_nas.inspur_as13000_opts,
     manila.share.drivers.maprfs.maprfs_native.maprfs_native_share_opts,
     manila.share.drivers.lvm.share_opts,
     manila.share.drivers.netapp.options.netapp_proxy_opts,
@@ -201,7 +187,6 @@ _opts.extend(oslo_policy.opts.list_opts())
 _opts.extend(manila.network.neutron.api.list_opts())
 _opts.extend(manila.compute.nova.list_opts())
 _opts.extend(manila.volume.cinder.list_opts())
-_opts.extend(oslo_service.sslutils.list_opts())
 
 
 def list_opts():
