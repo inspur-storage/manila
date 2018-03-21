@@ -166,10 +166,6 @@ class RestAPIExecutor(object):
                   'port': self._port,
                   'rest': 'rest',
                   'method': method})
-        # https = {'method': request_type,
-        #          'utl': url,
-        #          'params': params}
-        # print https
         # header is not needed when the driver login the backend
         if method == 'security/token':
             # token won't be return to the token_pool
@@ -252,12 +248,13 @@ class AS13000ShareDriver(driver.ShareDriver):
     Version history:
     V1.0.0:    Initial version
     V1.1.0:    fix location problem and extend unit_convert
-    provide more exception info
-
+               provide more exception info
+    V1.2.0     delete the shrink_share function,
+               fix the bugs caused by the as13000 quota module adjustment
     """
 
     VENDOR = 'INSPUR'
-    VERSION = '1.1.0'
+    VERSION = '1.2.0'
     PROTOCOL = 'NFS_CIFS'
 
     def __init__(self, *args, **kwargs):
@@ -322,16 +319,13 @@ class AS13000ShareDriver(driver.ShareDriver):
     def create_share(self, context, share, share_server=None):
         """Create a share."""
         pool, share_name, share_size, share_proto = self._get_share_pnsp(share)
-        # dir_list = self._get_directory_list(pool)
-        # if share_name in dir_list:
-        #     msg = ('Share(%s) is exist in backend(%s) already.'
-        #            % (share_name, share['host']))
-        #     LOG.error(msg)
-        #     raise exception.InvalidInput(msg)
+
         # 1.create directory first
         share_path = self._create_directory(
             share_name=share_name, pool_name=pool)
-        # 2.create nfs/cifs share second
+        # 2.set the quota of directory
+        self._set_directory_quota(share_path, share_size)
+        # 3.create nfs/cifs share
         if share_proto == 'nfs':
             self._create_nfs_share(share_path=share_path)
         elif share_proto == 'cifs':
@@ -341,8 +335,6 @@ class AS13000ShareDriver(driver.ShareDriver):
             msg = 'Invalid NAS protocol supplied: %s.' % share_proto
             LOG.error(msg)
             raise exception.InvalidInput(msg)
-        # 3.set the quota of directory
-        self._set_directory_quota(share_path, share_size)
 
         locations = self._get_location_path(
             share_name, share_path, share_proto)
@@ -356,16 +348,12 @@ class AS13000ShareDriver(driver.ShareDriver):
                                    share_server=None):
         """Create a share from snapshot."""
         pool, share_name, share_size, share_proto = self._get_share_pnsp(share)
-        # dir_list = self._get_directory_list(pool)
-        #
-        # if share_name in dir_list:
-        #     msg = ('Share(%s) is exist in backend(%s) already.'
-        #            % (share_name, share['host']))
-        #     LOG.error(msg)
-        #     raise exception.InvalidInput(msg)
         # 1.create directory first
         share_path = self._create_directory(share_name=share_name,
                                             pool_name=pool)
+        # from saturn quota must set when directory is empty
+        # 1.2 set the quota of directory
+        self._set_directory_quota(share_path, share_size)
         # 2.clone snapshot to dest_path
         self._clone_directory_to_dest(snapshot=snapshot, dest_path=share_path)
         # 3.create share
@@ -378,8 +366,6 @@ class AS13000ShareDriver(driver.ShareDriver):
             msg = 'Invalid NAS protocol supplied: %s.' % share_proto
             LOG.error(msg)
             raise exception.InvalidInput(msg)
-        # 4.set the quota of directory
-        self._set_directory_quota(share_path, share_size)
 
         locations = self._get_location_path(
             share_name, share_path, share_proto)
@@ -422,26 +408,26 @@ class AS13000ShareDriver(driver.ShareDriver):
         LOG.debug('extend share:%(name)s to new size %(size)s GB',
                   {'name': name, 'size': new_size})
 
-    @inspur_driver_debug_trace
-    def shrink_share(self, share, new_size, share_server=None):
-        """shrink share to new size.
-
-        Before shrinking, Driver will make sure
-        the new size is larger the share already used
-        """
-        pool, name, size, proto = self._get_share_pnsp(share)
-        share_path = r'/%s/%s' % (pool, name)
-        current_quota, used_capacity = self._get_directory_quata(share_path)
-        if new_size < used_capacity:
-            msg = ('New size for shrink can not be less than used_capacity'
-                   ' on array. (used_capacity: %s, new: %s)).'
-                   % (used_capacity, new_size))
-            LOG.error(msg)
-            raise exception.ShareShrinkingError(
-                share_id=share['share_id'], reason=msg)
-        self._set_directory_quota(share_path, new_size)
-        LOG.debug('shrink share:%(name)s to new size %(size)s GB',
-                  {'name': name, 'size': new_size})
+    # @inspur_driver_debug_trace
+    # def shrink_share(self, share, new_size, share_server=None):
+    #     """shrink share to new size.
+    #
+    #     Before shrinking, Driver will make sure
+    #     the new size is larger the share already used
+    #     """
+    #     pool, name, size, proto = self._get_share_pnsp(share)
+    #     share_path = r'/%s/%s' % (pool, name)
+    #     current_quota, used_capacity = self._get_directory_quata(share_path)
+    #     if new_size < used_capacity:
+    #         msg = ('New size for shrink can not be less than used_capacity'
+    #                ' on array. (used_capacity: %s, new: %s)).'
+    #                % (used_capacity, new_size))
+    #         LOG.error(msg)
+    #         raise exception.ShareShrinkingError(
+    #             share_id=share['share_id'], reason=msg)
+    #     self._set_directory_quota(share_path, new_size)
+    #     LOG.debug('shrink share:%(name)s to new size %(size)s GB',
+    #               {'name': name, 'size': new_size})
 
     @inspur_driver_debug_trace
     def ensure_share(self, context, share, share_server=None):

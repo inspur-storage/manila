@@ -364,6 +364,7 @@ class AS13000ShareDriverTestCase(test.TestCase):
         self.as13000_driver.do_setup(self._ctxt)
         mock_login.assert_called_once()
         mock_vpe.assert_called_once()
+
         mock_sp.assert_called_once_with(
             test_config.inspur_as13000_share_pool[0])
         mock_gni.assert_called_once()
